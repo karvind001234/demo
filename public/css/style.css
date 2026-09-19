@@ -100,12 +100,15 @@ body {
   animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.login-card .logo {
-  font-size: 32px;
-  margin-bottom: 6px;
+.login-card .login-logo {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  margin-bottom: 14px;
   display: inline-block;
   animation: pulseLogo 2.4s ease-in-out infinite;
 }
+.login-card .login-logo span { color: var(--accent); }
 
 .login-card h1 {
   font-size: 22px;
