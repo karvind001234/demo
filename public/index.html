@@ -12,12 +12,15 @@
   <div id="login-screen">
     <div class="login-card">
       <div class="login-logo">Crevio<span>Bot</span></div>
-      <h1>Welcome Back</h1>
-      <p class="sub">Sign in to continue</p>
-      <input type="password" id="api-key-input" placeholder="Enter API Key" autocomplete="off">
-      <button class="btn-primary" id="login-btn">Login</button>
+      <h1>Access Your Dashboard</h1>
+      <p class="sub">Enter your API key to continue</p>
+      <div class="input-icon-wrap">
+        <span class="input-icon">🔑</span>
+        <input type="password" id="api-key-input" placeholder="Enter API Key" autocomplete="off">
+      </div>
+      <button class="btn-primary" id="login-btn">Login to Dashboard <span class="arrow">→</span></button>
       <div class="login-error" id="login-error"></div>
-      <div class="login-hint">Get your API key from the Crevio bot → Profile → API Key</div>
+      <div class="login-hint">Don't have a key? <a href="https://t.me/CrevioBot" target="_blank" rel="noopener">Register</a></div>
     </div>
   </div>
 
