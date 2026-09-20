@@ -6,7 +6,9 @@ function money(paise) {
 }
 function fmtDate(ts) {
   if (!ts) return '—';
-  return new Date(Number(ts)).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  return new Date(Number(ts)).toLocaleString('en-IN', {
+    day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
+  });
 }
 function badge(status) {
   const s = (status || '').toLowerCase();
@@ -17,6 +19,13 @@ function esc(str) {
   d.textContent = str == null ? '' : String(str);
   return d.innerHTML;
 }
+function yesNo(v) { return v ? 'Yes' : 'No'; }
+function channelCell(name) {
+  return `<span class="cell-icon-wrap"><i data-lucide="tv"></i>${esc(name)}</span>`;
+}
+function chevronCell() {
+  return `<td class="row-chevron"><i data-lucide="chevron-right"></i></td>`;
+}
 
 const content = document.getElementById('content');
 const viewTitle = document.getElementById('view-title');
@@ -26,14 +35,16 @@ let currentUser = null;
 let pages = {}; // per-view current page number
 
 function setLoading() { content.innerHTML = '<div class="loading"><div class="spinner"></div><span>Loading…</span></div>'; }
-function setError(msg) { content.innerHTML = `<div class="empty-state">⚠️ ${msg}</div>`; }
+function setError(msg) { content.innerHTML = `<div class="empty-state"><i data-lucide="triangle-alert" style="width:22px;height:22px;color:var(--accent);display:block;margin:0 auto 10px;"></i>${msg}</div>`; }
 function retriggerAnim() {
   content.classList.remove('view-anim');
   void content.offsetWidth;
   content.classList.add('view-anim');
+  if (window.lucide) lucide.createIcons();
 }
 
-function paginationHTML(view, page, total, limit = 10) {
+function paginationHTML(view, page, total, limit) {
+  limit = limit || 10;
   const totalPages = Math.max(1, Math.ceil(total / limit));
   return `
     <div class="pagination">
@@ -43,8 +54,8 @@ function paginationHTML(view, page, total, limit = 10) {
     </div>`;
 }
 function bindPagination() {
-  content.querySelectorAll('[data-page-view]').forEach(btn => {
-    btn.addEventListener('click', () => {
+  content.querySelectorAll('[data-page-view]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
       pages[btn.getAttribute('data-page-view')] = parseInt(btn.getAttribute('data-page'), 10);
       loadView(btn.getAttribute('data-page-view'));
     });
@@ -54,14 +65,16 @@ function bindPagination() {
 // ---------- modal ----------
 const modalRoot = document.getElementById('modal-root');
 function closeModal() { modalRoot.innerHTML = ''; }
+
 function openModal(title, bodyHTML, opts) {
   opts = opts || {};
   const onSubmit = opts.onSubmit;
   const submitLabel = opts.submitLabel || 'Save';
+  const iconHtml = opts.icon ? `<i data-lucide="${opts.icon}"></i> ` : '';
   modalRoot.innerHTML = `
     <div class="modal-overlay" id="modal-overlay">
       <div class="modal-box">
-        <h3>${title}</h3>
+        <h3>${iconHtml}${title}</h3>
         <div class="modal-error" id="modal-error"></div>
         <form id="modal-form">${bodyHTML}
           <div class="modal-actions">
@@ -71,6 +84,7 @@ function openModal(title, bodyHTML, opts) {
         </form>
       </div>
     </div>`;
+  if (window.lucide) lucide.createIcons();
   document.getElementById('modal-cancel').addEventListener('click', closeModal);
   document.getElementById('modal-overlay').addEventListener('click', function (e) { if (e.target.id === 'modal-overlay') closeModal(); });
   const form = document.getElementById('modal-form');
@@ -92,10 +106,40 @@ function openModal(title, bodyHTML, opts) {
     }
   });
 }
+
 function confirmAction(message, action) {
   openModal('Please confirm', `<p style="color:var(--text-dim);margin:0 0 4px;">${esc(message)}</p>`, {
     submitLabel: 'Confirm',
+    icon: 'circle-help',
     onSubmit: async function () { await action(); loadView(currentView); },
+  });
+}
+
+// Read-only detail view with optional action buttons (Edit, Activate/Deactivate, etc.)
+function drow(label, valueHtml) {
+  return `<dt>${esc(label)}</dt><dd>${valueHtml}</dd>`;
+}
+function openDetail(title, rowsHtml, actions, icon) {
+  const actionButtons = (actions || []).map(function (a, i) {
+    return `<button type="button" class="btn ${a.className || ''}" data-detail-action="${i}">${esc(a.label)}</button>`;
+  }).join('');
+  const iconHtml = icon ? `<i data-lucide="${icon}"></i> ` : '';
+  modalRoot.innerHTML = `
+    <div class="modal-overlay" id="modal-overlay">
+      <div class="modal-box">
+        <h3>${iconHtml}${title}</h3>
+        <dl class="detail-grid">${rowsHtml}</dl>
+        <div class="modal-actions">
+          ${actionButtons}
+          <button type="button" class="btn" id="modal-cancel">Close</button>
+        </div>
+      </div>
+    </div>`;
+  if (window.lucide) lucide.createIcons();
+  document.getElementById('modal-cancel').addEventListener('click', closeModal);
+  document.getElementById('modal-overlay').addEventListener('click', function (e) { if (e.target.id === 'modal-overlay') closeModal(); });
+  (actions || []).forEach(function (a, i) {
+    modalRoot.querySelector('[data-detail-action="' + i + '"]').addEventListener('click', a.onClick);
   });
 }
 
@@ -124,16 +168,17 @@ const VIEWS = {
     viewTitle.textContent = 'Profile';
     const me = currentUser || await Api.me();
     const recent = await Api.transactions(1).catch(function () { return { transactions: [] }; });
+    const joined = new Date(Number(me.joined_at));
+    const joinedDate = joined.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    const joinedTime = joined.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true });
     content.innerHTML = `
       <div class="stat-grid">
         <div class="stat-card"><div class="label">Name</div><div class="value">${esc(me.full_name) || '—'}</div></div>
-        <div class="stat-card"><div class="label">Username</div><div class="value">@${esc(me.username) || '—'}</div></div>
+        ${me.username ? `<div class="stat-card"><div class="label">Username</div><div class="value">@${esc(me.username)}</div></div>` : ""}
         <div class="stat-card"><div class="label">Active Plans</div><div class="value accent">${me.active_plans}</div></div>
-        <div class="stat-card"><div class="label">Free Days Earned</div><div class="value">${me.free_days_earned}</div></div>
-        <div class="stat-card"><div class="label">Referral Code</div><div class="value">${esc(me.referral_code) || '—'}</div></div>
-        <div class="stat-card"><div class="label">Joined</div><div class="value">${fmtDate(me.joined_at)}</div></div>
+        <div class="stat-card"><div class="label">Joined</div><div class="value" style="font-size:16px;">${joinedDate}<div style="color:var(--text-dim);font-size:12px;font-weight:400;margin-top:2px;">${joinedTime}</div></div></div>
       </div>
-      <h3 style="margin:0 0 12px;font-size:15px;color:var(--text-dim);">Recent Transactions</h3>
+      <h3 class="section-heading">Recent Transactions</h3>
       <div class="table-wrap"><div class="table-scroll">
         <table><thead><tr><th>Channel</th><th>Amount</th><th>Status</th><th>Date</th></tr></thead>
         <tbody>${(recent.transactions || []).slice(0, 5).map(function (t) {
@@ -143,21 +188,82 @@ const VIEWS = {
       </div></div>`;
   },
 
+  discover: async function () {
+    viewTitle.textContent = 'Discover Channels';
+    const sort = pages.discoverSort || 'popular';
+    const page = pages.discover || 1;
+    const data = await Api.discoverChannels(page, sort);
+    const sorts = [
+      ['popular', 'flame', 'Most Popular'],
+      ['newest', 'sparkles', 'Newest'],
+      ['oldest', 'history', 'Oldest'],
+      ['price_low', 'arrow-down-narrow-wide', 'Price: Low'],
+      ['price_high', 'arrow-up-wide-narrow', 'Price: High'],
+      ['free', 'gift', 'Free'],
+    ];
+    const toolbar = `
+      <div class="discover-head">
+        <div class="discover-count">${data.total || 0} channel${data.total === 1 ? '' : 's'}</div>
+        <div class="sort-chips" role="tablist" aria-label="Sort channels">
+          ${sorts.map(function (o) {
+            return `<button type="button" class="sort-chip ${o[0] === sort ? 'active' : ''}" data-sort="${o[0]}"><i data-lucide="${o[1]}"></i><span>${o[2]}</span></button>`;
+          }).join('')}
+        </div>
+      </div>`;
+    content.innerHTML = toolbar + (!data.channels.length ? '<div class="empty-state">No channels found.</div>' : `
+      <div class="channel-card-grid">${data.channels.map(function (c, i) {
+        const name = c.username ? '@' + esc(c.username) : esc(c.channel_name);
+        const isFree = !c.price;
+        const price = isFree ? 'Free' : money(c.price) + '<small>/' + esc(c.plan_type) + '</small>';
+        return `<div class="channel-card" tabindex="0" role="button" data-ch-idx="${i}" style="animation-delay:${i * 0.04}s">
+          <div class="ch-top">
+            <div class="ch-icon"><i data-lucide="tv"></i></div>
+            <span class="ch-price ${isFree ? 'free' : ''}">${price}</span>
+          </div>
+          <div class="ch-name">${name}</div>
+          <div class="ch-category"><i data-lucide="tag"></i>${esc(c.category) || 'General'}</div>
+          <div class="ch-meta">
+            <span class="ch-members"><i data-lucide="users"></i> ${c.member_count || 0} member${c.member_count === 1 ? '' : 's'}</span>
+            <span class="ch-view">View details <i data-lucide="arrow-right"></i></span>
+          </div>
+        </div>`;
+      }).join('')}</div>
+      ${paginationHTML('discover', page, data.total)}`);
+    content.querySelectorAll('.sort-chip').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        const next = btn.getAttribute('data-sort');
+        if (next === sort) return;
+        pages.discoverSort = next;
+        pages.discover = 1;
+        loadView('discover');
+      });
+    });
+    content.querySelectorAll('[data-ch-idx]').forEach(function (card) {
+      function open() { openChannelModal(data.channels[parseInt(card.getAttribute('data-ch-idx'), 10)]); }
+      card.addEventListener('click', open);
+      card.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+    });
+    bindPagination();
+  },
+
   memberships: async function () {
-    viewTitle.textContent = 'Memberships';
+    viewTitle.textContent = 'My Memberships';
     const page = pages.memberships || 1;
     const data = await Api.memberships(page);
     if (!data.memberships.length) { content.innerHTML = '<div class="empty-state">No memberships yet.</div>'; return; }
     content.innerHTML = `
       <div class="table-wrap"><div class="table-scroll">
-        <table><thead><tr><th>Channel</th><th>Plan</th><th>Price</th><th>Status</th><th>Expires</th></tr></thead>
-        <tbody>${data.memberships.map(function (m) {
-          return `<tr><td>${esc(m.channel_name)}</td><td>${esc(m.plan_type)}</td><td>${money(m.price)}</td><td>${badge(m.status)}</td><td>${fmtDate(m.expires_at)}</td></tr>`;
+        <table><thead><tr><th>Channel</th><th>Plan</th><th>Price</th><th>Status</th><th>Expires</th><th></th></tr></thead>
+        <tbody>${data.memberships.map(function (m, i) {
+          return `<tr class="clickable-row" data-mem-idx="${i}"><td>${channelCell(m.channel_name)}</td><td>${esc(m.plan_type)}</td><td>${money(m.price)}</td><td>${badge(m.status)}</td><td>${fmtDate(m.expires_at)}</td>${chevronCell()}</tr>`;
         }).join('')}
         </tbody></table></div>
         ${paginationHTML('memberships', page, data.total)}
       </div>`;
     bindPagination();
+    content.querySelectorAll('[data-mem-idx]').forEach(function (row) {
+      row.addEventListener('click', function () { openMembershipDetail(data.memberships[parseInt(row.getAttribute('data-mem-idx'))]); });
+    });
   },
 
   transactions: async function () {
@@ -167,19 +273,31 @@ const VIEWS = {
     if (!data.transactions.length) { content.innerHTML = '<div class="empty-state">No transactions yet.</div>'; return; }
     content.innerHTML = `
       <div class="table-wrap"><div class="table-scroll">
-        <table><thead><tr><th>Channel</th><th>Amount</th><th>Method</th><th>Status</th><th>Date</th></tr></thead>
-        <tbody>${data.transactions.map(function (t) {
-          return `<tr><td>${esc(t.channel_name)}</td><td>${money(t.amount)}</td><td>${esc(t.method)}</td><td>${badge(t.status)}</td><td>${fmtDate(t.created_at)}</td></tr>`;
+        <table><thead><tr><th>Channel</th><th>Amount</th><th>Method</th><th>Status</th><th>Date</th><th></th></tr></thead>
+        <tbody>${data.transactions.map(function (t, i) {
+          return `<tr class="clickable-row" data-txn-idx="${i}"><td>${channelCell(t.channel_name)}</td><td>${money(t.amount)}</td><td>${esc(t.method)}</td><td>${badge(t.status)}</td><td>${fmtDate(t.created_at)}</td>${chevronCell()}</tr>`;
         }).join('')}
         </tbody></table></div>
         ${paginationHTML('transactions', page, data.total)}
       </div>`;
     bindPagination();
+    content.querySelectorAll('[data-txn-idx]').forEach(function (row) {
+      row.addEventListener('click', function () { openTransactionDetail(data.transactions[parseInt(row.getAttribute('data-txn-idx'))]); });
+    });
   },
 
   'creator-dashboard': async function () {
     viewTitle.textContent = 'Creator Dashboard';
-    const d = await Api.creatorDashboard();
+    const results = await Promise.all([
+      Api.creatorDashboard(),
+      Api.creatorMembers(1).catch(function () { return { members: [] }; }),
+      Api.creatorPayments(1).catch(function () { return { payments: [] }; }),
+    ]);
+    const d = results[0], membersData = results[1], paymentsData = results[2];
+    const expiringSoon = (membersData.members || [])
+      .filter(function (m) { return m.status === 'active'; })
+      .sort(function (a, b) { return a.expires_at - b.expires_at; })
+      .slice(0, 5);
     content.innerHTML = `
       <div class="stat-grid">
         <div class="stat-card"><div class="label">Channels</div><div class="value">${d.total_channels}</div></div>
@@ -188,7 +306,39 @@ const VIEWS = {
         <div class="stat-card"><div class="label">This Month</div><div class="value">${money(d.month_revenue)}</div></div>
         <div class="stat-card"><div class="label">Active Plans</div><div class="value">${d.active_plans}</div></div>
         <div class="stat-card"><div class="label">Expiring Soon</div><div class="value">${d.expiring_soon}</div></div>
-      </div>`;
+      </div>
+
+      <div class="dash-grid">
+        <div>
+          <h3 class="section-heading">Recent Members</h3>
+          <div class="table-wrap"><div class="table-scroll">
+            <table><thead><tr><th>Member</th><th>Channel</th><th>Expires</th></tr></thead>
+            <tbody>${(membersData.members || []).slice(0, 5).map(function (m) {
+              return `<tr><td>${esc(m.full_name || m.user_username || m.user_id)}</td><td>${esc(m.channel_name)}</td><td>${fmtDate(m.expires_at)}</td></tr>`;
+            }).join('') || '<tr><td colspan="3">No members yet.</td></tr>'}
+            </tbody></table>
+          </div></div>
+        </div>
+        <div>
+          <h3 class="section-heading">Recent Payments</h3>
+          <div class="table-wrap"><div class="table-scroll">
+            <table><thead><tr><th>From</th><th>Amount</th><th>Status</th></tr></thead>
+            <tbody>${(paymentsData.payments || []).slice(0, 5).map(function (t) {
+              return `<tr><td>${esc(t.full_name || t.user_id)}</td><td>${money(t.amount)}</td><td>${badge(t.status)}</td></tr>`;
+            }).join('') || '<tr><td colspan="3">No payments yet.</td></tr>'}
+            </tbody></table>
+          </div></div>
+        </div>
+      </div>
+
+      <h3 class="section-heading">Expiring Soon</h3>
+      <div class="table-wrap"><div class="table-scroll">
+        <table><thead><tr><th>Member</th><th>Channel</th><th>Expires</th></tr></thead>
+        <tbody>${expiringSoon.map(function (m) {
+          return `<tr><td>${esc(m.full_name || m.user_username || m.user_id)}</td><td>${esc(m.channel_name)}</td><td>${fmtDate(m.expires_at)}</td></tr>`;
+        }).join('') || '<tr><td colspan="3">Nothing expiring soon.</td></tr>'}
+        </tbody></table>
+      </div></div>`;
   },
 
   'creator-channels': async function () {
@@ -204,16 +354,15 @@ const VIEWS = {
       <div class="table-wrap"><div class="table-scroll">
         <table><thead><tr><th>Channel</th><th>Category</th><th>Members</th><th>Status</th><th>Created</th><th></th></tr></thead>
         <tbody>${data.channels.map(function (c) {
-          return `<tr><td>${esc(c.channel_name)}</td><td>${esc(c.category) || '—'}</td><td>${c.total_members}</td>
-          <td>${c.is_active ? badge('active') : badge('cancelled')}</td><td>${fmtDate(c.created_at)}</td>
-          <td><div class="row-actions"><button class="btn btn-sm" data-edit-channel="${c.channel_id}">Edit</button></div></td></tr>`;
+          return `<tr class="clickable-row" data-channel-id="${c.channel_id}"><td>${channelCell(c.channel_name)}</td><td>${esc(c.category) || '—'}</td><td>${c.total_members}</td>
+          <td>${c.is_active ? badge('active') : badge('cancelled')}</td><td>${fmtDate(c.created_at)}</td>${chevronCell()}</tr>`;
         }).join('')}
         </tbody></table></div>
         ${paginationHTML('creator-channels', page, data.total)}
       </div>`;
     bindPagination();
-    content.querySelectorAll('[data-edit-channel]').forEach(function (btn) {
-      btn.addEventListener('click', function () { openEditChannel(parseInt(btn.getAttribute('data-edit-channel'))); });
+    content.querySelectorAll('[data-channel-id]').forEach(function (row) {
+      row.addEventListener('click', function () { openChannelDetail(parseInt(row.getAttribute('data-channel-id'))); });
     });
   },
 
@@ -229,12 +378,9 @@ const VIEWS = {
       <div class="table-wrap"><div class="table-scroll">
         <table><thead><tr><th>Channel</th><th>Plan</th><th>Type</th><th>Price</th><th>Subscribers</th><th>Revenue</th><th></th></tr></thead>
         <tbody>${data.plans.map(function (p) {
-          return `<tr><td>${esc(p.channel_name)}</td><td>${esc(p.plan_name)}</td><td>${esc(p.plan_type)}</td>
+          return `<tr class="clickable-row" data-plan-id="${p.id}"><td>${channelCell(p.channel_name)}</td><td>${esc(p.plan_name)}</td><td>${esc(p.plan_type)}</td>
           <td>${money(p.price)}</td><td>${p.total_subscribers}</td><td>${money(p.total_revenue)}</td>
-          <td><div class="row-actions">
-            <button class="btn btn-sm" data-edit-plan-id="${p.id}">Edit</button>
-            <button class="btn btn-sm btn-danger" data-delete-plan="${p.id}">Delete</button>
-          </div></td></tr>`;
+          <td><button class="btn btn-sm" data-edit-plan-id="${p.id}">Edit</button></td></tr>`;
         }).join('')}
         </tbody></table></div>
         ${paginationHTML('creator-plans', page, data.total)}
@@ -242,13 +388,16 @@ const VIEWS = {
     bindPagination();
     document.getElementById('new-plan-btn').addEventListener('click', openNewPlan);
     content.querySelectorAll('[data-edit-plan-id]').forEach(function (btn) {
-      const plan = data.plans.find(function (p) { return String(p.id) === btn.getAttribute('data-edit-plan-id'); });
-      btn.addEventListener('click', function () { openEditPlan(plan); });
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        const plan = data.plans.find(function (p) { return String(p.id) === btn.getAttribute('data-edit-plan-id'); });
+        openEditPlan(plan);
+      });
     });
-    content.querySelectorAll('[data-delete-plan]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        confirmAction('Delete this plan? Existing subscribers keep access, but no one new can buy it.',
-          function () { return Api.creatorDeletePlan(btn.getAttribute('data-delete-plan')); });
+    content.querySelectorAll('[data-plan-id]').forEach(function (row) {
+      row.addEventListener('click', function () {
+        const plan = data.plans.find(function (p) { return String(p.id) === row.getAttribute('data-plan-id'); });
+        openPlanDetail(plan);
       });
     });
   },
@@ -260,14 +409,17 @@ const VIEWS = {
     if (!data.members.length) { content.innerHTML = '<div class="empty-state">No members yet.</div>'; return; }
     content.innerHTML = `
       <div class="table-wrap"><div class="table-scroll">
-        <table><thead><tr><th>Member</th><th>Channel</th><th>Plan</th><th>Status</th><th>Expires</th></tr></thead>
-        <tbody>${data.members.map(function (m) {
-          return `<tr><td>${esc(m.full_name || m.user_username || m.user_id)}</td><td>${esc(m.channel_name)}</td><td>${esc(m.plan_type)}</td><td>${badge(m.status)}</td><td>${fmtDate(m.expires_at)}</td></tr>`;
+        <table><thead><tr><th>Member</th><th>Channel</th><th>Plan</th><th>Status</th><th>Expires</th><th></th></tr></thead>
+        <tbody>${data.members.map(function (m, i) {
+          return `<tr class="clickable-row" data-member-idx="${i}"><td>${esc(m.full_name || m.user_username || m.user_id)}</td><td>${esc(m.channel_name)}</td><td>${esc(m.plan_type)}</td><td>${badge(m.status)}</td><td>${fmtDate(m.expires_at)}</td>${chevronCell()}</tr>`;
         }).join('')}
         </tbody></table></div>
         ${paginationHTML('creator-members', page, data.total)}
       </div>`;
     bindPagination();
+    content.querySelectorAll('[data-member-idx]').forEach(function (row) {
+      row.addEventListener('click', function () { openMemberDetail(data.members[parseInt(row.getAttribute('data-member-idx'))]); });
+    });
   },
 
   'creator-payments': async function () {
@@ -292,11 +444,19 @@ const VIEWS = {
     const s = await Api.creatorSettings();
     content.innerHTML = `
       <div class="stat-grid">
-        <div class="stat-card"><div class="label">Verified</div><div class="value">${s.is_verified ? '✅ Yes' : '❌ No'}</div></div>
-        <div class="stat-card"><div class="label">Own Razorpay Connected</div><div class="value">${s.has_own_razorpay ? 'Yes' : 'No'}</div></div>
+        <div class="stat-card"><div class="label">Verified</div><div class="value">${s.is_verified ? '<i data-lucide="badge-check" style="color:#2ecc71;width:20px;height:20px;vertical-align:-4px;"></i> Yes' : '<i data-lucide="circle-x" style="color:var(--text-dim);width:20px;height:20px;vertical-align:-4px;"></i> No'}</div></div>
+        <div class="stat-card"><div class="label">Own Razorpay Connected</div><div class="value">${s.has_own_razorpay ? '<i data-lucide="badge-check" style="color:#2ecc71;width:20px;height:20px;vertical-align:-4px;"></i> Yes' : 'No'}</div></div>
       </div>
       <div class="table-wrap" style="padding:24px;max-width:460px;">
         <form id="settings-form">
+          <div class="field-group">
+            <label>Razorpay Key ID</label>
+            <input type="text" name="razorpayKey" placeholder="${s.has_own_razorpay ? 'Already set — leave blank to keep' : 'rzp_live_...'}">
+          </div>
+          <div class="field-group">
+            <label>Razorpay Key Secret</label>
+            <input type="password" name="razorpaySecret" placeholder="${s.has_own_razorpay ? 'Already set — leave blank to keep' : 'Enter secret'}">
+          </div>
           <div class="field-group">
             <label>TRX (USDT) Wallet Address</label>
             <input type="text" name="trxWallet" value="${esc(s.trx_wallet) || ''}" placeholder="T...">
@@ -316,10 +476,14 @@ const VIEWS = {
       const errBox = document.getElementById('settings-error');
       btn.disabled = true; btn.textContent = 'Saving…'; errBox.textContent = '';
       try {
-        await Api.creatorUpdateSettings({
+        const payload = {
           trxWallet: fd.get('trxWallet') || null,
           useDefaultRazorpay: fd.get('useDefaultRazorpay') === 'on',
-        });
+        };
+        const rzpKey = fd.get('razorpayKey');
+        const rzpSecret = fd.get('razorpaySecret');
+        if (rzpKey) { payload.razorpayKey = rzpKey; payload.razorpaySecret = rzpSecret; }
+        await Api.creatorUpdateSettings(payload);
         btn.textContent = 'Saved ✓';
         setTimeout(function () { loadView('creator-settings'); }, 700);
       } catch (err) {
@@ -361,8 +525,8 @@ const VIEWS = {
           return `<tr><td>${esc(u.full_name) || '—'}</td><td>@${esc(u.username) || '—'}</td><td>${esc(u.role)}</td>
           <td>${u.is_banned ? badge('cancelled') : badge('active')}</td><td>${fmtDate(u.created_at)}</td>
           <td>${u.is_banned
-            ? `<button class="btn btn-sm" data-unban="${u.user_id}">Unban</button>`
-            : `<button class="btn btn-sm btn-danger" data-ban="${u.user_id}">Ban</button>`}</td></tr>`;
+            ? '<button class="btn btn-sm" data-unban="' + u.user_id + '">Unban</button>'
+            : '<button class="btn btn-sm btn-danger" data-ban="' + u.user_id + '">Ban</button>'}</td></tr>`;
         }).join('')}
         </tbody></table></div>
         ${paginationHTML('admin-users', page, data.total)}
@@ -372,6 +536,7 @@ const VIEWS = {
       btn.addEventListener('click', function () {
         openModal('Ban user', '<div class="field-group"><label>Reason (optional)</label><textarea name="reason" placeholder="Why is this user being banned?"></textarea></div>', {
           submitLabel: 'Ban User',
+          icon: 'user-x',
           onSubmit: async function (fd) { await Api.adminBanUser(btn.getAttribute('data-ban'), fd.get('reason') || null); loadView('admin-users'); },
         });
       });
@@ -395,10 +560,10 @@ const VIEWS = {
           <td>${c.total_members}</td>
           <td>${c.is_suspended ? badge('cancelled') : (c.is_verified ? badge('active') : badge('pending'))}</td>
           <td><div class="row-actions">
-            ${!c.is_verified ? `<button class="btn btn-sm" data-verify="${c.user_id}">Verify</button>` : ''}
+            ${!c.is_verified ? '<button class="btn btn-sm" data-verify="' + c.user_id + '">Verify</button>' : ''}
             ${c.is_suspended
-              ? `<button class="btn btn-sm" data-unsuspend="${c.user_id}">Unsuspend</button>`
-              : `<button class="btn btn-sm btn-danger" data-suspend="${c.user_id}">Suspend</button>`}
+              ? '<button class="btn btn-sm" data-unsuspend="' + c.user_id + '">Unsuspend</button>'
+              : '<button class="btn btn-sm btn-danger" data-suspend="' + c.user_id + '">Suspend</button>'}
           </div></td></tr>`;
         }).join('')}
         </tbody></table></div>
@@ -419,6 +584,7 @@ const VIEWS = {
       btn.addEventListener('click', function () {
         openModal('Suspend creator', '<div class="field-group"><label>Reason (optional)</label><textarea name="reason" placeholder="Why is this creator being suspended?"></textarea></div>', {
           submitLabel: 'Suspend',
+          icon: 'shield-alert',
           onSubmit: async function (fd) { await Api.adminSuspendCreator(btn.getAttribute('data-suspend'), fd.get('reason') || null); loadView('admin-creators'); },
         });
       });
@@ -458,6 +624,196 @@ const VIEWS = {
   },
 };
 
+// ---------- detail modals ----------
+function openMembershipDetail(m) {
+  const rows = [
+    drow('Channel', esc(m.channel_name)),
+    drow('Plan', esc(m.plan_type)),
+    drow('Price', money(m.price)),
+    drow('Status', badge(m.status)),
+    drow('Trial', yesNo(m.is_trial)),
+    drow('Gifted', yesNo(m.is_gifted)),
+    drow('Activated', fmtDate(m.activated_at)),
+    drow('Expires', fmtDate(m.expires_at)),
+    drow('Grace Until', m.grace_until ? fmtDate(m.grace_until) : '—'),
+  ];
+  if (m.cancelled_at) {
+    rows.push(drow('Cancelled At', fmtDate(m.cancelled_at)));
+    rows.push(drow('Cancel Reason', esc(m.cancel_reason) || '—'));
+  }
+  openDetail('Membership Details', rows.join(''), null, 'package');
+}
+
+// ---------- Discover: channel detail popup (full details + join link) ----------
+function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+  return new Promise(function (resolve, reject) {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy') ? resolve() : reject(); } catch (e) { reject(e); } finally { document.body.removeChild(ta); }
+  });
+}
+
+function openChannelModal(c) {
+  const name = c.username ? '@' + c.username : c.channel_name;
+  modalRoot.innerHTML = `
+    <div class="modal-overlay" id="modal-overlay">
+      <div class="modal-box channel-modal">
+        <div class="cm-head">
+          <div class="ch-icon"><i data-lucide="tv"></i></div>
+          <div class="cm-title">
+            <h3>${esc(name)}</h3>
+            <div class="cm-sub">${esc(c.channel_name)}</div>
+          </div>
+        </div>
+        <div id="cm-body"><div class="loading" style="padding:34px 10px;"><div class="spinner"></div><span>Loading details…</span></div></div>
+        <div class="modal-actions" id="cm-actions"><button type="button" class="btn" id="modal-cancel">Close</button></div>
+      </div>
+    </div>`;
+  if (window.lucide) lucide.createIcons();
+  document.getElementById('modal-cancel').addEventListener('click', closeModal);
+  document.getElementById('modal-overlay').addEventListener('click', function (e) { if (e.target.id === 'modal-overlay') closeModal(); });
+
+  Api.discoverChannel(c.channel_id).then(function (d) {
+    const ch = d.channel, plans = d.plans || [];
+    const body = document.getElementById('cm-body');
+    if (!body) return; // modal was closed meanwhile
+    const plansHtml = plans.length
+      ? plans.map(function (p) {
+          const free = !p.price;
+          return `<div class="plan-row">
+            <div><div class="plan-name">${esc(p.plan_name || p.plan_type)}</div>
+            <div class="plan-sub">${esc(p.plan_type)}${p.trial_days ? ' · ' + p.trial_days + '-day free trial' : ''}</div></div>
+            <div class="plan-price ${free ? 'free' : ''}">${free ? 'Free' : money(p.price)}</div>
+          </div>`;
+        }).join('')
+      : '<div class="plan-sub">No active plans yet.</div>';
+    body.innerHTML = `
+      <div class="cm-stats">
+        <div><span>Members</span><b>${ch.member_count || 0}</b></div>
+        <div><span>Category</span><b>${esc(ch.category) || 'General'}</b></div>
+        <div><span>Type</span><b style="text-transform:capitalize;">${esc(ch.type) || 'public'}</b></div>
+      </div>
+      ${ch.description ? `<p class="cm-desc">${esc(ch.description)}</p>` : ''}
+      <dl class="detail-grid">
+        ${drow('Channel', esc(ch.channel_name))}
+        ${ch.username ? drow('Username', '@' + esc(ch.username)) : ''}
+        ${drow('Created', ch.created_at ? fmtDate(ch.created_at) : '—')}
+      </dl>
+      <div class="cm-section">Available Plans</div>
+      <div class="plan-list">${plansHtml}</div>
+      ${d.join_link ? `
+        <div class="cm-section">Join Link</div>
+        <div class="join-box">
+          <code id="join-link-text">${esc(d.join_link)}</code>
+          <button type="button" class="btn" id="copy-join"><i data-lucide="copy"></i> Copy</button>
+        </div>` : '<div class="plan-sub" style="margin-top:14px;">Join link is not available right now.</div>'}`;
+    if (d.join_link) {
+      document.getElementById('cm-actions').innerHTML = `
+        <button type="button" class="btn" id="modal-cancel">Close</button>
+        <a class="btn btn-join" href="${esc(d.join_link)}" target="_blank" rel="noopener noreferrer"><i data-lucide="send"></i> Join / Subscribe</a>`;
+      document.getElementById('modal-cancel').addEventListener('click', closeModal);
+      document.getElementById('copy-join').addEventListener('click', function () {
+        const btn = this;
+        copyText(d.join_link).then(function () {
+          btn.innerHTML = '<i data-lucide="check"></i> Copied';
+          if (window.lucide) lucide.createIcons();
+          setTimeout(function () { btn.innerHTML = '<i data-lucide="copy"></i> Copy'; if (window.lucide) lucide.createIcons(); }, 1800);
+        }).catch(function () {});
+      });
+    }
+    if (window.lucide) lucide.createIcons();
+  }).catch(function (err) {
+    const body = document.getElementById('cm-body');
+    if (body) body.innerHTML = `<div class="empty-state" style="padding:24px 10px;">${esc(err.message === 'HTTP_404' ? 'Channel not found.' : (err.message || 'Could not load details.'))}</div>`;
+  });
+}
+
+function openTransactionDetail(t) {
+  const rows = [
+    drow('Channel', esc(t.channel_name)),
+    drow('Amount', money(t.amount)),
+    drow('Method', esc(t.method)),
+    drow('Status', badge(t.status)),
+    drow('Transaction ID', esc(t.txn_id)),
+  ];
+  if (t.razorpay_payment_id) rows.push(drow('Razorpay Payment ID', esc(t.razorpay_payment_id)));
+  if (t.razorpay_order_id) rows.push(drow('Razorpay Order ID', esc(t.razorpay_order_id)));
+  if (t.trx_hash) rows.push(drow('TRX Hash', esc(t.trx_hash)));
+  if (t.platform_fee) rows.push(drow('Platform Fee', money(t.platform_fee)));
+  if (t.commission) rows.push(drow('Commission', money(t.commission)));
+  if (t.refund_amount) {
+    rows.push(drow('Refund Amount', money(t.refund_amount)));
+    rows.push(drow('Refunded At', fmtDate(t.refunded_at)));
+    rows.push(drow('Refund Reason', esc(t.refund_reason) || '—'));
+  }
+  rows.push(drow('Date', fmtDate(t.created_at)));
+  openDetail('Transaction Details', rows.join(''), null, 'credit-card');
+}
+
+function openMemberDetail(m) {
+  const rows = [
+    drow('Member', esc(m.full_name || m.user_username || m.user_id)),
+    drow('Channel', esc(m.channel_name)),
+    drow('Plan', esc(m.plan_type)),
+    drow('Price', money(m.price)),
+    drow('Status', badge(m.status)),
+    drow('Activated', fmtDate(m.activated_at)),
+    drow('Expires', fmtDate(m.expires_at)),
+  ];
+  if (m.cancelled_at) {
+    rows.push(drow('Cancelled At', fmtDate(m.cancelled_at)));
+    rows.push(drow('Cancel Reason', esc(m.cancel_reason) || '—'));
+  }
+  openDetail('Member Details', rows.join(''), null, 'user');
+}
+
+function openChannelDetail(channelId) {
+  const c = (creatorChannelsCache || []).find(function (x) { return x.channel_id === channelId; });
+  if (!c) return;
+  const rows = [
+    drow('Channel', esc(c.channel_name)),
+    drow('Category', esc(c.category) || '—'),
+    drow('Description', esc(c.description) || '—'),
+    drow('Welcome Message', esc(c.welcome_message) || '—'),
+    drow('Members', String(c.total_members)),
+    drow('Max Members', c.max_members ? String(c.max_members) : 'Unlimited'),
+    drow('Paused', yesNo(c.is_paused)),
+    drow('Status', c.is_active ? badge('active') : badge('cancelled')),
+    drow('Created', fmtDate(c.created_at)),
+  ];
+  openDetail('Channel Details', rows.join(''), [
+    { label: 'Edit', onClick: function () { closeModal(); openEditChannel(channelId); } },
+  ], 'tv');
+}
+
+function openPlanDetail(p) {
+  const rows = [
+    drow('Channel', esc(p.channel_name)),
+    drow('Plan Name', esc(p.plan_name)),
+    drow('Type', esc(p.plan_type)),
+    drow('Price', money(p.price)),
+    drow('Trial Days', String(p.trial_days || 0)),
+    drow('Subscribers', String(p.total_subscribers)),
+    drow('Revenue', money(p.total_revenue)),
+    drow('Status', p.is_active ? badge('active') : badge('cancelled')),
+    drow('Created', fmtDate(p.created_at)),
+  ];
+  openDetail('Plan Details', rows.join(''), [
+    { label: 'Edit', onClick: function () { closeModal(); openEditPlan(p); } },
+    {
+      label: p.is_active ? 'Deactivate' : 'Activate',
+      className: p.is_active ? 'btn-danger' : 'btn-accent',
+      onClick: async function () {
+        await Api.creatorUpdatePlan(p.id, { isActive: !p.is_active });
+        closeModal();
+        loadView('creator-plans');
+      },
+    },
+  ], 'layers');
+}
+
 // ---------- creator write forms ----------
 async function ensureChannelsForDropdown() {
   if (creatorChannelsCache) return creatorChannelsCache;
@@ -477,7 +833,7 @@ async function openNewPlan() {
   openModal('New Plan', `
     <div class="field-group">
       <label>Channel</label>
-      <select name="channelId">${channels.map(function (c) { return `<option value="${c.channel_id}">${esc(c.channel_name)}</option>`; }).join('')}</select>
+      <select name="channelId">${channels.map(function (c) { return '<option value="' + c.channel_id + '">' + esc(c.channel_name) + '</option>'; }).join('')}</select>
     </div>
     <div class="field-group"><label>Plan Name</label><input type="text" name="planName" placeholder="e.g. Monthly Access" required></div>
     <div class="field-row">
@@ -490,6 +846,7 @@ async function openNewPlan() {
     <div class="field-group"><label>Trial Days (optional)</label><input type="number" name="trialDays" min="0" value="0"></div>
   `, {
     submitLabel: 'Create Plan',
+    icon: 'layers',
     onSubmit: async function (fd) {
       await Api.creatorCreatePlan({
         channelId: fd.get('channelId'),
@@ -511,6 +868,7 @@ function openEditPlan(plan) {
     <div class="checkbox-row"><input type="checkbox" id="isActive" name="isActive" ${plan.is_active ? 'checked' : ''}><label for="isActive">Active (visible to new subscribers)</label></div>
   `, {
     submitLabel: 'Save Changes',
+    icon: 'pencil',
     onSubmit: async function (fd) {
       await Api.creatorUpdatePlan(plan.id, {
         planName: fd.get('planName'),
@@ -534,6 +892,7 @@ function openEditChannel(channelId) {
     <div class="checkbox-row"><input type="checkbox" id="isPaused" name="isPaused" ${c.is_paused ? 'checked' : ''}><label for="isPaused">Pause new signups</label></div>
   `, {
     submitLabel: 'Save Changes',
+    icon: 'tv',
     onSubmit: async function (fd) {
       await Api.creatorUpdateChannel(channelId, {
         category: fd.get('category') || null,
@@ -611,13 +970,15 @@ loginInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') log
 function enterApp(me) {
   loginScreen.classList.add('hidden');
   appScreen.classList.remove('hidden');
-  whoLabel.textContent = `${me.full_name || 'User'} · ${me.is_admin ? 'Admin' : me.is_creator ? 'Creator' : 'Member'}`;
+  whoLabel.textContent = (me.full_name || 'User') + ' · ' + (me.is_admin ? 'Admin' : me.is_creator ? 'Creator' : 'Member');
   document.getElementById('nav-creator').classList.toggle('hidden', !me.is_creator);
   document.getElementById('nav-admin').classList.toggle('hidden', !me.is_admin);
   loadView('profile');
 }
 
 // ---------- boot ----------
+if (window.lucide) lucide.createIcons();
+
 (async function boot() {
   const existingKey = Api.getKey();
   if (!existingKey) return;
